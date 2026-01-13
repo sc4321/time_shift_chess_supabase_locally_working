@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Time-Shift Chess (Multiplayer)</title>
+ 
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">Time-Shift Chess</div>
+        <div class="me" id="me"></div>
+      </header>
+ 
+      <main>
+        <section class="card" id="authCard">
+          <h2>Account</h2>
+          <div class="row">
+            <div class="col">
+              <h3>Register</h3>
+              <form id="registerForm">
+                <label>Username <input name="username" autocomplete="username" /></label>
+                <label>Password <input type="password" name="password" autocomplete="new-password" /></label>
+                <button type="submit">Create account</button>
+              </form>
+            </div>
+            <div class="col">
+              <h3>Login</h3>
+              <form id="loginForm">
+                <label>Username <input name="username" autocomplete="username" /></label>
+                <label>Password <input type="password" name="password" autocomplete="current-password" /></label>
+                <button type="submit">Login</button>
+              </form>
+            </div>
+          </div>
+          <div class="error" id="authError"></div>
+        </section>
+ 
+        <section class="card hidden" id="lobbyCard">
+          <h2>Lobby</h2>
+          <div class="row">
+            <div class="col">
+              <label>Mode
+                <select id="modeSelect">
+                  <option value="solo">Solo (1v1)</option>
+                  <option value="team">Team (3v3)</option>
+                </select>
+              </label>
+            </div>
+            <div class="col">
+              <label>Time Control
+                <select id="timeSelect">
+                  <option value="600">10 minutes</option>
+                  <option value="180">3 minutes</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="row">
+            <button id="queueBtn">Find Match</button>
+            <button id="leaveQueueBtn" class="secondary">Leave Queue</button>
+            <button id="logoutBtn" class="secondary">Logout</button>
+          </div>
+          <div class="status" id="queueStatus"></div>
+		  <div class="card" style="margin-top:12px">
+			<h3>Waiting players</h3>
+			<div class="status" id="queueList">—</div>
+		  </div>
+        </section>
+ 
+        <section class="card hidden" id="gameCard">
+          <div class="gameHeader">
+            <div>
+              <div class="matchMeta" id="matchMeta"></div>
+              <div class="clocks">
+                <div class="clock" id="clockBlack">Black: --:--</div>
+                <div class="clock" id="clockWhite">White: --:--</div>
+              </div>
+            </div>
+            <div class="gameActions">
+              <button id="resignBtn" class="danger">Resign</button>
+              <button id="backToLobbyBtn" class="secondary">Back to Lobby</button>
+            </div>
+          </div>
+ 
+          <div class="boards">
+            <div class="boardWrap">
+              <div class="boardTitle" id="title1">Young</div>
+              <div class="turnIndicator" id="turn1"></div>
+              <div id="board1" class="board"></div>
+            </div>
+            <div class="boardWrap">
+              <div class="boardTitle" id="title2">Middle</div>
+              <div class="turnIndicator" id="turn2"></div>
+              <div id="board2" class="board"></div>
+            </div>
+            <div class="boardWrap">
+              <div class="boardTitle" id="title3">Old</div>
+              <div class="turnIndicator" id="turn3"></div>
+              <div id="board3" class="board"></div>
+            </div>
+          </div>
+ 
+          <div class="status" id="gameStatus"></div>
+        </section>
+      </main>
+    </div>
+ 
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="/config.js" defer></script>
+	<script type="module" src="/chess-glue.js"></script>
+    <script src="/timeShiftEngine.browser.js" defer></script>
+    <script src="/clock.browser.js" defer></script>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

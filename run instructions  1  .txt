@@ -1,0 +1,7 @@
+delete from public.queue_entries;
+delete from public.match_moves;
+delete from public.match_players;
+delete from public.matches;
+
+
+python -m http.server 8080

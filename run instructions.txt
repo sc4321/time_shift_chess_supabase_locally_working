@@ -1,0 +1,19 @@
+old:
+cd /workspace/server
+npm install
+node src/index.js
+
+Then open http://localhost:3000 in two browsers (or normal + incognito), register users, queue for Solo or Team.
+
+
+new:
+
+This repo now runs as a static site (IONOS-friendly) + Supabase backend.
+
+1) Create a Supabase project, run `supabase/schema.sql` in the Supabase SQL Editor.
+2) Copy `public/config.example.js` → `public/config.js` and fill your Supabase URL + anon key.
+3) Run a static server from `public/`:
+
+python3 -m http.server 8080
+
+Then open `http://localhost:8080` in two browsers (or normal + incognito), register users, queue for Solo or Team.
