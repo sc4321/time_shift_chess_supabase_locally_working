@@ -1,0 +1,13 @@
+# dependencies
+**/node_modules/
+
+# local secrets
+**/config.js
+
+# local databases
+**/*.sqlite3
+**/*.sqlite3-wal
+**/*.sqlite3-shm
+
+# misc
+.DS_Store
