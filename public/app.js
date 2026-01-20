@@ -32,6 +32,46 @@ let clockUiTimer = null;
 let movesPollTimer = null;
 
 let timeoutCommitted = false;
+
+let localAiEnabled = false;
+let aiColor = null;          // 'w' or 'b'
+let stockfish = null;
+
+ 
+function uciToMove(uci) {
+  if (!uci || uci === '0000') return null;
+  return { from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || 'q' };
+} 
+ 
+async function maybeComputerMove() {
+  if (!localAiEnabled || !engine || !clock || matchMeta?.ended_at) return;
+  if (engine.currentTurn.color !== aiColor) return;
+ 
+  const boardIndex = engine.currentTurn.board;
+  const fen = engine.getFen(boardIndex);
+  if (!fen) return;
+ 
+  setStatus('Computer thinking…');
+  const uci = await stockfish.bestmove(fen, 200);
+  const mv = uciToMove(uci);
+  if (!mv) { setStatus(''); return; }
+ 
+  const result = engine.applyMove({ boardIndex, from: mv.from, to: mv.to, promotion: mv.promotion });
+  if (!result.ok) {
+    setStatus(`Computer move failed: ${result.reason}`);
+    return;
+  }
+ 
+  clock.switchTurn(engine.currentTurn.color);
+  renderMatchUi();
+ 
+  if (result.matchResult) {
+    await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
+  } else {
+    setStatus('');
+  }
+} 
+ 
  
 function el(id) {
   return document.getElementById(id);
@@ -135,7 +175,7 @@ function initBoardsIfNeeded() {
       position: 'start',
       orientation: 'white',
       onDragStart: (source, piece) => canDragPiece(idx, piece),
-      onDrop: async (source, target, piece) => {
+      onDrop: (source, target, piece) => {
         if (!profile || !currentMatchId || !engine || source === target) return 'snapback';
         if (isSubmittingMove) return 'snapback';
         if (!canDragPiece(idx, pieceFromCode(piece))) return 'snapback';
@@ -156,17 +196,26 @@ function initBoardsIfNeeded() {
         renderMatchUi();
  
         isSubmittingMove = true;
-        try {
-          await submitMove({ boardIndex: idx, from: source, to: target, promotion: 'q' });
+        (async () => {
+          try {
+			 if (!localAiEnabled) {
+			  await submitMove({ boardIndex: idx, from: source, to: target, promotion: 'q' });
+			}
  
-          if (result.matchResult) {
-            await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
+            if (result.matchResult) {
+              await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
+            }
+ 
+            // If local AI mode, let computer respond
+            if (localAiEnabled) {
+              await maybeComputerMove();
+            }
+          } finally {
+            isSubmittingMove = false;
           }
-        } finally {
-          isSubmittingMove = false;
-        }
+        })();
  
-        return;
+        return; // keep piece (no snapback)
       }
     });
  
@@ -378,6 +427,7 @@ async function enterMatch(matchId) {
   setVisible('gameCard', true);
   renderMatchUi();
  
+ /*
   matchMovesChannel = supabaseClient
     .channel(`match_moves_${matchId}`)
     .on(
@@ -391,6 +441,7 @@ async function enterMatch(matchId) {
       }
     )
     .subscribe();
+ */
  
   matchRowChannel = supabaseClient
     .channel(`match_${matchId}`)
@@ -427,9 +478,7 @@ async function replayMoves() {
  
 async function applyMoveRow(move) {
 	
-  if (move.id <= lastAppliedMoveId){
-	  setStatus(`move.id <= lastAppliedMoveId returned`);
-  return;}
+  if (move.id <= lastAppliedMoveId) return;
   lastAppliedMoveId = move.id;
  
   if (!engine || !clock || !matchMeta)
@@ -581,6 +630,12 @@ async function leaveQueue() {
 }
  
 async function logout() {
+  
+  localAiEnabled = false;
+  aiColor = null;
+  if (stockfish?.stop) stockfish.stop();
+	stockfish = null;
+
   clearRealtime();
   stopClockUi();
   currentMatchId = null;
@@ -593,6 +648,7 @@ async function logout() {
   setVisible('authCard', true);
   setVisible('lobbyCard', false);
   setVisible('gameCard', false);
+  
   if (supabaseClient) await supabaseClient.auth.signOut();
   stopMovesPolling();
 }
@@ -618,6 +674,9 @@ el('registerForm').addEventListener('submit', async (e) => {
     if (upErr) throw upErr;
  
     profile = await loadMyProfile();
+	startQueuePolling();
+	refreshQueueSnapshot();
+
     el('me').textContent = `${profile.username} (rating ${profile.rating})`;
     setVisible('authCard', false);
     setVisible('lobbyCard', true);
@@ -640,6 +699,9 @@ el('loginForm').addEventListener('submit', async (e) => {
     if (error) throw error;
  
     profile = await loadMyProfile();
+	startQueuePolling();
+	refreshQueueSnapshot();
+
     el('me').textContent = `${profile.username} (rating ${profile.rating})`;
     setVisible('authCard', false);
     setVisible('lobbyCard', true);
@@ -653,7 +715,6 @@ el('queueBtn').addEventListener('click', async () => {
   const btn = el('queueBtn');
   btn.disabled = true;
   try {
-    requireSupabaseConfigured();
     if (!profile) return;
  
     setQueueStatus('');
@@ -662,7 +723,41 @@ el('queueBtn').addEventListener('click', async () => {
     const mode = el('modeSelect').value;
     const timeControlMs = Number(el('timeSelect').value) * 1000;
  
-    const { data, error } = await supabaseClient.rpc('queue_join', { mode_in: mode, time_control_ms_in: timeControlMs });
+    // ---- LOCAL AI MODE (no queue, no supabase match) ----
+    if (mode === 'ai') {
+      localAiEnabled = true;
+      aiColor = Math.random() < 0.5 ? 'w' : 'b';
+ 
+      // lazy-load stockfish client once
+      if (!stockfish) {
+        const mod = await import('/stockfish/stockfishClient.js');
+        stockfish = await mod.createStockfish();
+      }
+ 
+      currentMatchId = 'local_ai';
+      matchMeta = { mode: 'solo', time_control_ms: timeControlMs, ended_at: null, result: null, termination: null };
+      currentAssignment = { color: aiColor === 'w' ? 'b' : 'w', boardRole: null };
+ 
+      engine = new window.TimeShiftEngine();
+      clock = new window.MatchClock({ initialMs: timeControlMs });
+      clock.start();
+ 
+      setVisible('lobbyCard', false);
+      setVisible('gameCard', true);
+      renderMatchUi();
+ 
+      // if computer is white, it moves immediately
+      await maybeComputerMove();
+      return;
+    }
+ 
+    // ---- ONLINE PVP/PVT MODE (supabase queue) ----
+    requireSupabaseConfigured();
+ 
+    const { data, error } = await supabaseClient.rpc('queue_join', {
+      mode_in: mode,
+      time_control_ms_in: timeControlMs
+    });
     if (error) throw error;
  
     const row = Array.isArray(data) ? data[0] : data;
@@ -683,6 +778,8 @@ el('queueBtn').addEventListener('click', async () => {
   }
 });
  
+ 
+
 el('leaveQueueBtn').addEventListener('click', async () => {
   try {
     await leaveQueue();
@@ -704,11 +801,19 @@ el('resignBtn').addEventListener('click', async () => {
 });
  
 el('backToLobbyBtn').addEventListener('click', async () => {
+  
 	// If you leave an active match, end it (treat as resign)
   if (currentMatchId && currentAssignment && matchMeta && !matchMeta.ended_at) {
 	const winner = currentAssignment.color === 'w' ? 'b' : 'w';
 	await commitMatchEnd({ result: winner, termination: 'resign' });
   }
+  
+  // STOP AI 
+  localAiEnabled = false;
+  aiColor = null;
+  if (stockfish?.stop) stockfish.stop();
+  stockfish = null;
+  
   setVisible('queueWidget', true);
   clearRealtime();
   stopClockUi();
@@ -730,8 +835,7 @@ el('backToLobbyBtn').addEventListener('click', async () => {
   setVisible('lobbyCard', false);
   setVisible('gameCard', false);
   setVisible('queueWidget', true);
-  startQueuePolling();
-  refreshQueueSnapshot();
+  
  
   try {
     requireSupabaseConfigured();
@@ -742,7 +846,9 @@ el('backToLobbyBtn').addEventListener('click', async () => {
  
   try {
     profile = await loadMyProfile();
-    if (!profile) return;
+	if (!profile) return;
+	startQueuePolling();
+	refreshQueueSnapshot();
     el('me').textContent = `${profile.username} (rating ${profile.rating})`;
     setVisible('authCard', false);
     setVisible('lobbyCard', true);

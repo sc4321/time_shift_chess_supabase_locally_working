@@ -47,29 +47,34 @@
                 <select id="modeSelect">
                   <option value="solo">Solo (1v1)</option>
                   <option value="team">Team (3v3)</option>
+				  <option value="ai">Solo vs Computer (local)</option>
                 </select>
               </label>
             </div>
             <div class="col">
               <label>Time Control
                 <select id="timeSelect">
+				  <option value="3600">60 minutes</option>
+				  <option value="1800">30 minutes</option>
                   <option value="600">10 minutes</option>
                   <option value="180">3 minutes</option>
                 </select>
               </label>
             </div>
           </div>
-          <div class="row">
-            <button id="queueBtn">Find Match</button>
-            <button id="leaveQueueBtn" class="secondary">Leave Queue</button>
-            <button id="logoutBtn" class="secondary">Logout</button>
-          </div>
-          <div class="status" id="queueStatus"></div>
-		  <div class="card" style="margin-top:12px">
-			<h3>Waiting players</h3>
-			<div class="status" id="queueList">—</div>
-		  </div>
-        </section>
+			<div class="row">
+			  <button id="queueBtn">Find Match</button>
+			  <button id="leaveQueueBtn" class="secondary">Leave Queue</button>
+			  <button id="logoutBtn" class="secondary">Logout</button>
+			</div>
+		 
+			<div class="status" id="queueStatus"></div>
+		 
+			<div class="card" id="queueWidget" style="margin-top:12px">
+			  <h3>Waiting players</h3>
+			  <div class="status" id="queueList">—</div>
+			</div>
+		</section>
  
         <section class="card hidden" id="gameCard">
           <div class="gameHeader">
@@ -116,6 +121,7 @@
 	<script type="module" src="/chess-glue.js"></script>
     <script src="/timeShiftEngine.browser.js" defer></script>
     <script src="/clock.browser.js" defer></script>
+	<script type="module" src="/stockfish/stockfishClient.js"></script>
     <script src="/app.js" defer></script>
   </body>
 </html>

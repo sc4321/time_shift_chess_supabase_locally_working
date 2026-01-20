@@ -118,6 +118,7 @@
     game.load(parts.join(' '));
   }
  
+
   class TimeShiftEngine {
     constructor() {
       const ChessCtor = requireChess();
@@ -131,7 +132,8 @@
         1: new ChessCtor(),
         2: new ChessCtor(),
         3: new ChessCtor()
-      };
+      }
+
  
       this.currentTurn = { board: 1, color: 'w' };
       this.boardFinished = { 1: false, 2: false, 3: false };
@@ -142,6 +144,12 @@
       updateGameStateFromBoardMap(this.games[2], this.boardMaps[2]);
       updateGameStateFromBoardMap(this.games[3], this.boardMaps[3]);
     }
+
+	  getFen(boardIndex) {
+		return this.games[boardIndex].fen();
+	  }
+
+
  
     serialize() {
       return {
