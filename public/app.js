@@ -46,31 +46,45 @@ function uciToMove(uci) {
 async function maybeComputerMove() {
   if (!localAiEnabled || !engine || !clock || matchMeta?.ended_at) return;
   if (engine.currentTurn.color !== aiColor) return;
+  if (!stockfish) { setStatus('AI not ready'); return; }
  
   const boardIndex = engine.currentTurn.board;
   const fen = engine.getFen(boardIndex);
-  if (!fen) return;
  
   setStatus('Computer thinking…');
-  const uci = await stockfish.bestmove(fen, 200);
-  const mv = uciToMove(uci);
-  if (!mv) { setStatus(''); return; }
+  try {
+    const uci = await stockfish.bestmove(fen, 300); // increase if needed
+    const mv = uciToMove(uci);
  
-  const result = engine.applyMove({ boardIndex, from: mv.from, to: mv.to, promotion: mv.promotion });
-  if (!result.ok) {
-    setStatus(`Computer move failed: ${result.reason}`);
-    return;
+    if (!mv) {
+      setStatus('Computer has no move.');
+      return;
+    }
+ 
+    const result = engine.applyMove({ boardIndex, from: mv.from, to: mv.to, promotion: mv.promotion });
+    if (!result.ok) {
+      setStatus(`Computer move failed: ${result.reason}`);
+      return;
+    }
+ 
+    clock.switchTurn(engine.currentTurn.color);
+    renderMatchUi();
+ 
+    if (result.matchResult) {
+      await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
+    }
+ 
+    // safety: if engine still says it's AI turn, try again
+    if (engine.currentTurn.color === aiColor && !matchMeta?.ended_at) {
+      setTimeout(maybeComputerMove, 0);
+    }
+  } catch (e) {
+    console.log('AI_ERROR', e);
+    setStatus('Computer error (see console).');
+  } finally {
+    if (!matchMeta?.ended_at) setStatus('');
   }
- 
-  clock.switchTurn(engine.currentTurn.color);
-  renderMatchUi();
- 
-  if (result.matchResult) {
-    await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
-  } else {
-    setStatus('');
-  }
-} 
+}
  
  
 function el(id) {
@@ -166,6 +180,22 @@ function stopClockUi() {
   clockUiTimer = null;
 }
  
+function startClockUi() {
+  stopClockUi();
+  clockUiTimer = setInterval(() => {
+    try {
+      if (!clock || !matchMeta || matchMeta.ended_at) return;
+      renderClocks();
+      maybeCommitTimeout();
+    } catch (e) {
+      console.log('CLOCK_UI_TICK_ERROR', e);
+    }
+  }, 250);
+}
+ 
+ 
+ 
+ 
 function initBoardsIfNeeded() {
   if (boards[1]) return;
  
@@ -258,6 +288,7 @@ function renderTurnIndicators() {
     const ind = el(`turn${i}`);
     if (boardFinished[i]) {
       ind.textContent = `Finished (${boardResults[i]} wins)`;
+	  console.log(`boardFinished, ${boardResults[i]} wins`);
     } else if (engine.currentTurn.board === i) {
       ind.textContent = `Active: ${engine.currentTurn.color === 'w' ? 'White' : 'Black'} to move`;
     } else {
@@ -422,6 +453,9 @@ async function enterMatch(matchId) {
  
   startMovesPolling();
  
+  stopQueuePolling();
+  setVisible('queueWidget', false);
+ 
   setVisible('authCard', false);
   setVisible('lobbyCard', false);
   setVisible('gameCard', true);
@@ -457,10 +491,11 @@ async function enterMatch(matchId) {
     )
     .subscribe();
  
-  clockUiTimer = setInterval(() => {
+  startClockUi();
+  /*clockUiTimer = setInterval(() => {
     renderClocks();
     maybeCommitTimeout();
-  }, 250);
+  }, 250);*/
 }
  
 async function replayMoves() {
@@ -554,6 +589,7 @@ async function fullResync() {
   engine = new window.TimeShiftEngine();
   clock = new window.MatchClock({ initialMs: matchMeta.time_control_ms });
   clock.start();
+  startClockUi();
   lastAppliedMoveId = 0;
   await replayMoves();
   renderMatchUi();
@@ -589,18 +625,40 @@ lastAppliedMoveId = Math.max(lastAppliedMoveId, data.id);
  
 async function commitMatchEnd({ result, termination }) {
   if (!currentMatchId || !matchMeta || matchMeta.ended_at) return;
+ 
+  // LOCAL AI: end locally (no Supabase)
+  if (localAiEnabled || currentMatchId === 'local_ai') {
+    matchMeta = {
+      ...matchMeta,
+      ended_at: new Date().toISOString(),
+      result: result === 'draw' ? 'draw' : result === 'w' ? 'white' : 'black',
+      termination: termination || null
+    };
+    clock?.pause();
+    renderMatchUi();
+    return;
+  }
+ 
+  // ONLINE: end in Supabase
   const update = {
     ended_at: new Date().toISOString(),
     result: result === 'draw' ? 'draw' : result === 'w' ? 'white' : 'black',
     termination: termination || null
   };
-  const { error } = await supabaseClient.from('matches').update(update).eq('id', currentMatchId).is('ended_at', null);
+ 
+  const { error } = await supabaseClient
+    .from('matches')
+    .update(update)
+    .eq('id', currentMatchId)
+    .is('ended_at', null);
+ 
   if (error) {
     const { data: m } = await supabaseClient.from('matches').select('*').eq('id', currentMatchId).single();
     if (m) matchMeta = m;
   } else {
     matchMeta = { ...matchMeta, ...update };
   }
+ 
   clock?.pause();
   renderMatchUi();
 }
@@ -624,9 +682,6 @@ async function leaveQueue() {
     supabaseClient.removeChannel(queueChannel);
     queueChannel = null;
   }
- 
-  const btn = el('queueBtn');
-  if (btn) btn.disabled = false;
 }
  
 async function logout() {
@@ -674,6 +729,7 @@ el('registerForm').addEventListener('submit', async (e) => {
     if (upErr) throw upErr;
  
     profile = await loadMyProfile();
+	setVisible('queueWidget', true);
 	startQueuePolling();
 	refreshQueueSnapshot();
 
@@ -706,6 +762,7 @@ el('loginForm').addEventListener('submit', async (e) => {
     setVisible('authCard', false);
     setVisible('lobbyCard', true);
     setVisible('gameCard', false);
+	setVisible('queueWidget', true);
   } catch (err) {
     setAuthError(err?.message || 'Login failed');
   }
@@ -741,10 +798,14 @@ el('queueBtn').addEventListener('click', async () => {
       engine = new window.TimeShiftEngine();
       clock = new window.MatchClock({ initialMs: timeControlMs });
       clock.start();
+	  startClockUi();
  
       setVisible('lobbyCard', false);
       setVisible('gameCard', true);
       renderMatchUi();
+ 
+	  stopQueuePolling();	
+	  setVisible('queueWidget', false);
  
       // if computer is white, it moves immediately
       await maybeComputerMove();
@@ -783,6 +844,8 @@ el('queueBtn').addEventListener('click', async () => {
 el('leaveQueueBtn').addEventListener('click', async () => {
   try {
     await leaveQueue();
+	const btn = el('queueBtn');
+    if (btn) btn.disabled = false;
   } catch (err) {
     setQueueStatus(err?.message || 'Leave queue failed');
   }
@@ -826,7 +889,13 @@ el('backToLobbyBtn').addEventListener('click', async () => {
   setVisible('lobbyCard', true);
   await leaveQueue();
   startQueuePolling();
+  refreshQueueSnapshot();
   stopMovesPolling();
+  const btn = el('queueBtn');
+  if (btn) btn.disabled = false;
+  isSubmittingMove = false; // optional safety
+  setQueueStatus('');
+  setStatus('');
 });
  
 // Bootstrap

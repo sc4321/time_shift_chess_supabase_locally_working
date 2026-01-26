@@ -191,6 +191,37 @@
         }
       } while (this.boardFinished[this.currentTurn.board] && !this.allBoardsFinished());
     }
+	
+	
+evaluateBoardAfterExternalChange(boardIndex) {
+  if (this.boardFinished[boardIndex]) return;
+ 
+  const ChessCtor = requireChess();
+  const fen = this.games[boardIndex].fen();
+ 
+  const test = (turnChar) => {
+    const parts = fen.split(' ');
+    parts[1] = turnChar;              // force side-to-move for evaluation
+    const g = new ChessCtor();
+    g.load(parts.join(' '));
+    const isMate = (typeof g.isCheckmate === 'function') ? g.isCheckmate() : g.in_checkmate();
+    const isCheck = (typeof g.isCheck === 'function') ? g.isCheck() : g.in_check();
+    return { isMate, isCheck };
+  };
+ 
+  const w = test('w');
+  const b = test('b');
+ 
+  // Strict chess: only mate ends the board
+  if (w.isMate) { this.boardFinished[boardIndex] = true; this.boardResults[boardIndex] = 'Black'; }
+  if (b.isMate) { this.boardFinished[boardIndex] = true; this.boardResults[boardIndex] = 'White'; }
+ 
+  // “instant win on check caused by propagation” rule:
+  if (w.isCheck) { this.boardFinished[boardIndex] = true; this.boardResults[boardIndex] = 'Black'; }
+  if (b.isCheck) { this.boardFinished[boardIndex] = true; this.boardResults[boardIndex] = 'White'; }
+}
+	
+	
  
     propagateCaptureFromBoard1(capturedKey) {
       const b2 = this.boardMaps[2];
@@ -198,10 +229,12 @@
       if (Object.prototype.hasOwnProperty.call(b2, capturedKey)) {
         delete b2[capturedKey];
         updateGameStateFromBoardMap(this.games[2], b2);
+		this.evaluateBoardAfterExternalChange(2)
       }
       if (Object.prototype.hasOwnProperty.call(b3, capturedKey)) {
         delete b3[capturedKey];
         updateGameStateFromBoardMap(this.games[3], b3);
+		this.evaluateBoardAfterExternalChange(3)
       }
     }
  
@@ -210,6 +243,7 @@
       if (Object.prototype.hasOwnProperty.call(b3, capturedKey)) {
         delete b3[capturedKey];
         updateGameStateFromBoardMap(this.games[3], b3);
+		this.evaluateBoardAfterExternalChange(3)
       }
     }
  
