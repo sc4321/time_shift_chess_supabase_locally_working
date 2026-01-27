@@ -182,15 +182,19 @@
     }
  
     advanceTurn() {
-      do {
-        if (this.currentTurn.color === 'w') {
-          this.currentTurn.color = 'b';
-        } else {
-          this.currentTurn.color = 'w';
-          this.currentTurn.board = (this.currentTurn.board % 3) + 1;
-        }
-      } while (this.boardFinished[this.currentTurn.board] && !this.allBoardsFinished());
-    }
+	  if (this.allBoardsFinished()) return;
+	 
+	  let guard = 0;
+	  do {
+		if (this.currentTurn.color === 'w') {
+		  this.currentTurn.color = 'b';
+		} else {
+		  this.currentTurn.color = 'w';
+		  this.currentTurn.board = (this.currentTurn.board % 3) + 1;
+		}
+		guard++;
+	  } while (this.boardFinished[this.currentTurn.board] && guard < 20);
+	}
 	
 	
 evaluateBoardAfterExternalChange(boardIndex) {
@@ -217,8 +221,8 @@ evaluateBoardAfterExternalChange(boardIndex) {
   if (b.isMate) { this.boardFinished[boardIndex] = true; this.boardResults[boardIndex] = 'White'; }
  
   // “instant win on check caused by propagation” rule:
-  if (w.isCheck) { this.boardFinished[boardIndex] = true; this.boardResults[boardIndex] = 'Black'; }
-  if (b.isCheck) { this.boardFinished[boardIndex] = true; this.boardResults[boardIndex] = 'White'; }
+  //if (w.isCheck) { this.boardFinished[boardIndex] = true; this.boardResults[boardIndex] = 'Black'; }
+  //if (b.isCheck) { this.boardFinished[boardIndex] = true; this.boardResults[boardIndex] = 'White'; }
 }
 	
 	
