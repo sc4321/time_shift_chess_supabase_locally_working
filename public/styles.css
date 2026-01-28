@@ -43,6 +43,10 @@ input, select {
   outline: none;
 }
 
+.last-from { background-color: rgba(106,169,255,0.85) ; opacity: 0.7;!important; }
+.last-to   { background-color: rgba(50,169,255,0.85) ; opacity: 0.7;!important;}
+
+
 button {
   background: var(--accent);
   color: #0b1220;

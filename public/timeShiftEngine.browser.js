@@ -252,6 +252,18 @@ evaluateBoardAfterExternalChange(boardIndex) {
     }
  
     applyMove({ boardIndex, from, to, promotion = 'q' }) {
+		
+	/*
+	console.log('[ENGINE applyMove] before', {
+	  boardIndex,
+	  from,
+	  to,
+	  promo: promotion,
+	  currentTurn: this.currentTurn,
+	  boardFinished: { ...this.boardFinished }
+	});
+	*/
+	
       if (this.boardFinished[boardIndex]) {
         return { ok: false, reason: `Board ${boardIndex} is finished` };
       }
@@ -279,6 +291,7 @@ evaluateBoardAfterExternalChange(boardIndex) {
  
       // attempt move in chess.js
       const move = game.move({ from, to, promotion });
+	  //console.log('[ENGINE applyMove] chess.js move', move);
       if (move === null) return { ok: false, reason: 'Illegal move' };
  
       // determine capture key (normal vs en passant)
@@ -346,11 +359,21 @@ evaluateBoardAfterExternalChange(boardIndex) {
         const turn = typeof game.turn === 'function' ? game.turn() : 'w';
         const winner = turn === 'w' ? 'Black' : 'White';
         this.boardFinished[boardIndex] = true;
+		/*if (this.boardFinished[boardIndex]) {
+		  console.log('[ENGINE board finished]', {
+			boardIndex,
+			winner: this.boardResults[boardIndex],
+			currentTurnAfterMateCheck: this.currentTurn,
+			fen: game.fen()
+		  });
+		}*/
         this.boardResults[boardIndex] = winner;
       }
  
       // advance global turn
+	  const beforeTurn = { ...this.currentTurn };
       this.advanceTurn();
+	  //console.log('[ENGINE advanceTurn]', { before: beforeTurn, after: this.currentTurn, boardFinished: { ...this.boardFinished } });
  
       return { ok: true, move, matchResult: this.computeMatchResultIfDone() };
     }

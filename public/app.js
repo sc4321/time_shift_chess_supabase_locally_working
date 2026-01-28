@@ -37,6 +37,41 @@ let localAiEnabled = false;
 let aiColor = null;          // 'w' or 'b'
 let stockfish = null;
 
+let _lastClockLog = 0;
+ 
+const lastMoveByBoard = { 1: null, 2: null, 3: null };
+ 
+function applyLastMoveHighlight(boardIndex) {
+  const root = document.getElementById(`board${boardIndex}`);
+  if (!root) return;
+ 
+  // squares are inside an inner div created by chessboard.js
+  const scope = root;
+ 
+  scope.querySelectorAll('.last-from, .last-to').forEach(n => {
+    n.classList.remove('last-from', 'last-to');
+  });
+ 
+  const mv = lastMoveByBoard[boardIndex];
+  if (!mv) return;
+ 
+  const fromEl =
+    scope.querySelector(`[data-square="${mv.from}"]`) || scope.querySelector(`.square-${mv.from}`);
+  const toEl =
+    scope.querySelector(`[data-square="${mv.to}"]`) || scope.querySelector(`.square-${mv.to}`);
+ 
+  if (fromEl) fromEl.classList.add('last-from');
+  if (toEl) toEl.classList.add('last-to');
+}
+ 
+function setLastMove(boardIndex, from, to) {
+  lastMoveByBoard[boardIndex] = { from, to };
+  // apply now + again after DOM updates
+  applyLastMoveHighlight(boardIndex);
+  requestAnimationFrame(() => applyLastMoveHighlight(boardIndex));
+}
+ 
+
  
 function uciToMove(uci) {
   if (!uci || uci === '0000') return null;
@@ -44,6 +79,17 @@ function uciToMove(uci) {
 } 
  
 async function maybeComputerMove() {
+	
+  /*
+  console.log('[AI maybeComputerMove] enter', {
+  localAiEnabled,
+  aiColor,
+  ended: !!matchMeta?.ended_at,
+  currentTurn: engine?.currentTurn,
+  boardFinished: engine?.serialize?.().boardFinished
+  }); 
+  */
+	
   if (!localAiEnabled || !engine || !clock || matchMeta?.ended_at) return;
   if (engine.currentTurn.color !== aiColor) return;
   if (!stockfish) { setStatus('AI not ready'); return; }
@@ -53,6 +99,7 @@ async function maybeComputerMove() {
  
   setStatus('Computer thinking…');
   try {
+	console.log('[AI think]', { boardIndex, fen });
     const uci = await stockfish.bestmove(fen, 300); // increase if needed
     const mv = uciToMove(uci);
  
@@ -62,10 +109,13 @@ async function maybeComputerMove() {
     }
  
     const result = engine.applyMove({ boardIndex, from: mv.from, to: mv.to, promotion: mv.promotion });
-    if (!result.ok) {
+    console.log('[AI move result]', result, { nextTurn: engine.currentTurn });
+	if (!result.ok) {
       setStatus(`Computer move failed: ${result.reason}`);
       return;
     }
+ 
+	setLastMove(boardIndex, mv.from, mv.to);
  
     clock.switchTurn(engine.currentTurn.color);
     renderMatchUi();
@@ -181,12 +231,23 @@ function stopClockUi() {
 }
  
 function startClockUi() {
+  
   stopClockUi();
+  
   clockUiTimer = setInterval(() => {
     try {
       if (!clock || !matchMeta || matchMeta.ended_at) return;
       renderClocks();
       maybeCommitTimeout();
+	  
+	  const now = Date.now();
+      if (now - _lastClockLog > 1000) {
+        _lastClockLog = now;
+        console.log('[CLOCK tick]', clock.snapshot());
+      }
+	  
+	  
+	  
     } catch (e) {
       console.log('CLOCK_UI_TICK_ERROR', e);
     }
@@ -221,7 +282,9 @@ function initBoardsIfNeeded() {
           setStatus(`Move rejected: ${result.reason}`);
           return 'snapback';
         }
- 
+		
+ 		setLastMove(idx, source, target);
+		
         clock.switchTurn(engine.currentTurn.color);
         renderMatchUi();
  
@@ -338,9 +401,15 @@ function renderMatchUi() {
   boards[3].orientation(orientation);
  
   renderBoards();
+  
+  applyLastMoveHighlight(1);
+  applyLastMoveHighlight(2);
+  applyLastMoveHighlight(3);
+  
   renderTurnIndicators();
   renderClocks();
   renderMatchHeader();
+   
  
   if (matchMeta.ended_at) {
     const r =
@@ -349,6 +418,7 @@ function renderMatchUi() {
   } else {
     setStatus('');
   }
+  
 }
  
 async function subscribeForQueueMatch() {
@@ -459,23 +529,10 @@ async function enterMatch(matchId) {
   setVisible('authCard', false);
   setVisible('lobbyCard', false);
   setVisible('gameCard', true);
+  
+  resetGameUiState();
+  
   renderMatchUi();
- 
- /*
-  matchMovesChannel = supabaseClient
-    .channel(`match_moves_${matchId}`)
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'match_moves', filter: `match_id=eq.${matchId}` },
-      async (payload) => {
-        const move = payload?.new;
-        if (!move) return;
-        await applyMoveRow(move);
-        renderMatchUi();
-      }
-    )
-    .subscribe();
- */
  
   matchRowChannel = supabaseClient
     .channel(`match_${matchId}`)
@@ -543,12 +600,37 @@ async function applyMoveRow(move) {
     return;
   }
  
+  setLastMove(move.board_index, move.from_square, move.to_square);
+  
   clock.switchTurn(engine.currentTurn.color);
  
   if (result.matchResult) {
     await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
   }
 }
+ 
+function applyLastMoveHighlight(boardIndex) {
+  const root = document.getElementById(`board${boardIndex}`);
+  if (!root) return;
+ 
+  root.querySelectorAll('.last-from, .last-to').forEach(n => {
+    n.classList.remove('last-from', 'last-to');
+  });
+ 
+  const mv = lastMoveByBoard[boardIndex];
+  if (!mv) return;
+ 
+  const fromEl = root.querySelector(`.square-${mv.from}`);
+  const toEl = root.querySelector(`.square-${mv.to}`);
+  if (fromEl) fromEl.classList.add('last-from');
+  if (toEl) toEl.classList.add('last-to');
+  console.log('[HL]', boardIndex, lastMoveByBoard[boardIndex], !!fromEl, !!toEl);   // temp debug
+}
+ 
+function setLastMove(boardIndex, from, to) {
+  lastMoveByBoard[boardIndex] = { from, to };
+  applyLastMoveHighlight(boardIndex);
+} 
  
  
 function startMovesPolling() {
@@ -796,6 +878,10 @@ el('queueBtn').addEventListener('click', async () => {
       currentAssignment = { color: aiColor === 'w' ? 'b' : 'w', boardRole: null };
  
       engine = new window.TimeShiftEngine();
+	  
+	  resetGameUiState();
+	  
+	  
       clock = new window.MatchClock({ initialMs: timeControlMs });
       clock.start();
 	  startClockUi();
@@ -896,7 +982,34 @@ el('backToLobbyBtn').addEventListener('click', async () => {
   isSubmittingMove = false; // optional safety
   setQueueStatus('');
   setStatus('');
+  resetGameUiState();
 });
+ 
+ function resetGameUiState() {
+  // clear last-move highlight state
+  lastMoveByBoard[1] = null;
+  lastMoveByBoard[2] = null;
+  lastMoveByBoard[3] = null;
+ 
+  // remove highlight classes from DOM
+  applyLastMoveHighlight(1);
+  applyLastMoveHighlight(2);
+  applyLastMoveHighlight(3);
+ 
+  // reset flags + messages
+  isSubmittingMove = false;
+  timeoutCommitted = false;
+  setStatus('');
+  
+  if (boards[1]) {
+    boards[1].position('start', false);
+    boards[2].position('start', false);
+    boards[3].position('start', false);
+  };  
+  
+}
+ 
+ 
  
 // Bootstrap
 (async function boot() {
