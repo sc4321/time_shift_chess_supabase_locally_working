@@ -99,7 +99,7 @@ async function maybeComputerMove() {
  
   setStatus('Computer thinking…');
   try {
-	console.log('[AI think]', { boardIndex, fen });
+	//console.log('[AI think]', { boardIndex, fen });
     const uci = await stockfish.bestmove(fen, 300); // increase if needed
     const mv = uciToMove(uci);
  
@@ -109,7 +109,7 @@ async function maybeComputerMove() {
     }
  
     const result = engine.applyMove({ boardIndex, from: mv.from, to: mv.to, promotion: mv.promotion });
-    console.log('[AI move result]', result, { nextTurn: engine.currentTurn });
+    //console.log('[AI move result]', result, { nextTurn: engine.currentTurn });
 	if (!result.ok) {
       setStatus(`Computer move failed: ${result.reason}`);
       return;
@@ -243,7 +243,7 @@ function startClockUi() {
 	  const now = Date.now();
       if (now - _lastClockLog > 1000) {
         _lastClockLog = now;
-        console.log('[CLOCK tick]', clock.snapshot());
+        //console.log('[CLOCK tick]', clock.snapshot());
       }
 	  
 	  
@@ -351,7 +351,7 @@ function renderTurnIndicators() {
     const ind = el(`turn${i}`);
     if (boardFinished[i]) {
       ind.textContent = `Finished (${boardResults[i]} wins)`;
-	  console.log(`boardFinished, ${boardResults[i]} wins`);
+	  //console.log(`boardFinished, ${boardResults[i]} wins`);
     } else if (engine.currentTurn.board === i) {
       ind.textContent = `Active: ${engine.currentTurn.color === 'w' ? 'White' : 'Black'} to move`;
     } else {
@@ -624,7 +624,7 @@ function applyLastMoveHighlight(boardIndex) {
   const toEl = root.querySelector(`.square-${mv.to}`);
   if (fromEl) fromEl.classList.add('last-from');
   if (toEl) toEl.classList.add('last-to');
-  console.log('[HL]', boardIndex, lastMoveByBoard[boardIndex], !!fromEl, !!toEl);   // temp debug
+  //console.log('[HL]', boardIndex, lastMoveByBoard[boardIndex], !!fromEl, !!toEl);   // temp debug
 }
  
 function setLastMove(boardIndex, from, to) {
@@ -728,11 +728,11 @@ async function commitMatchEnd({ result, termination }) {
     termination: termination || null
   };
  
-  const { error } = await supabaseClient
-    .from('matches')
-    .update(update)
-    .eq('id', currentMatchId)
-    .is('ended_at', null);
+  const { error } = await supabaseClient.rpc('end_match', {
+    match_id_in: currentMatchId,
+    result_in: update.result,
+    termination_in: update.termination
+  });
  
   if (error) {
     const { data: m } = await supabaseClient.from('matches').select('*').eq('id', currentMatchId).single();
@@ -740,6 +740,9 @@ async function commitMatchEnd({ result, termination }) {
   } else {
     matchMeta = { ...matchMeta, ...update };
   }
+ 
+  profile = await loadMyProfile();
+  el('me').textContent = `${profile.username} (rating ${profile.rating})`;
  
   clock?.pause();
   renderMatchUi();
