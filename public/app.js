@@ -190,7 +190,7 @@ async function loadMyProfile() {
  
   const { data: p, error: pErr } = await supabaseClient
     .from('profiles')
-    .select('id, username, rating')
+    .select('id, username, rating, preferred_mode, preferred_time_control_ms')
     .eq('id', user.id)
     .single();
   if (pErr) throw pErr;
@@ -743,6 +743,18 @@ async function commitMatchEnd({ result, termination }) {
  
   profile = await loadMyProfile();
   el('me').textContent = `${profile.username} (rating ${profile.rating})`;
+  
+  // mode
+  if (profile.preferred_mode) {
+	const modeSel = el('modeSelect');
+	  if (modeSel) modeSel.value = profile.preferred_mode;
+  }
+ 
+  // time (your <option> values are seconds)
+  if (profile.preferred_time_control_ms) {
+	  const timeSel = el('timeSelect');
+	  if (timeSel) timeSel.value = String(Math.round(profile.preferred_time_control_ms / 1000));
+  }
  
   clock?.pause();
   renderMatchUi();
@@ -1028,6 +1040,21 @@ el('backToLobbyBtn').addEventListener('click', async () => {
     setAuthError(String(e?.message || e));
     return;
   }
+ 
+ el('modeSelect')?.addEventListener('change', async (e) => {
+    if (!profile) return;
+    const mode = e.target.value;
+    profile.preferred_mode = mode;
+    await supabaseClient.from('profiles').update({ preferred_mode: mode }).eq('id', profile.id);
+  });
+ 
+  el('timeSelect')?.addEventListener('change', async (e) => {
+    if (!profile) return;
+    const ms = Number(e.target.value) * 1000;
+    profile.preferred_time_control_ms = ms;
+    await supabaseClient.from('profiles').update({ preferred_time_control_ms: ms }).eq('id', profile.id);
+  });
+ 
  
   try {
     profile = await loadMyProfile();
