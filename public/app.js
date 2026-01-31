@@ -401,6 +401,7 @@ function renderMatchUi() {
   boards[3].orientation(orientation);
  
   renderBoards();
+  updatePieceNumberLabels();
   
   applyLastMoveHighlight(1);
   applyLastMoveHighlight(2);
@@ -420,6 +421,48 @@ function renderMatchUi() {
   }
   
 }
+ 
+ function updatePieceNumberLabels() {
+  if (!engine?.boardMaps) return;
+ 
+  for (let boardIndex = 1; boardIndex <= 3; boardIndex++) {
+    const root = document.getElementById(`board${boardIndex}`);
+    if (!root) continue;
+ 
+    // clear old labels
+    
+	root.querySelectorAll('[data-piece-num]').forEach(n => {
+	  n.removeAttribute('data-piece-num');
+	  n.removeAttribute('data-piece-color');
+	});
+	
+    const boardMap = engine.boardMaps[boardIndex];
+    if (!boardMap) continue;
+ 
+    for (const key of Object.keys(boardMap)) {
+      const entry = boardMap[key];
+      if (!entry?.square || !entry?.piece) continue;
+ 
+      const pieceLetter = entry.piece[1]; // 'R','N',...
+      if (pieceLetter !== 'R' && pieceLetter !== 'N') continue;
+ 
+      const file = key[0]; // original file (a/b = "1", g/h = "2")
+      const num = (file === 'a' || file === 'b') ? '1'
+                : (file === 'g' || file === 'h') ? '2'
+                : null;
+      if (!num) continue;
+ 
+      const squareEl = root.querySelector(`.square-${entry.square}`);
+      
+	  if (squareEl) {
+		squareEl.setAttribute('data-piece-num', num);
+		squareEl.setAttribute('data-piece-color', entry.piece[0]); // 'w' or 'b'
+		}
+	  
+    }
+  }
+}
+ 
  
 async function subscribeForQueueMatch() {
   if (!profile) return;
