@@ -1,3 +1,5 @@
+const pendingMoveByBoard = { 1: null, 2: null, 3: null }; // { from,to,promotion }
+
 const SUPABASE_URL = window.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
 
@@ -41,6 +43,35 @@ let _lastClockLog = 0;
  
 const lastMoveByBoard = { 1: null, 2: null, 3: null };
  
+function setPremoveStatus() {
+  const parts = [];
+  for (let i = 1; i <= 3; i++) {
+    const pm = pendingMoveByBoard[i];
+    if (pm) parts.push(`B${i}:${pm.from}-${pm.to}`);
+  }
+  setStatus(parts.length ? `Premoves: ${parts.join(' | ')}` : '');
+} 
+
+
+function pieceColorFromCode(piece) {
+  const c = piece?.charAt(0);
+  return c === 'w' || c === 'b' ? c : null;
+}
+ 
+function canDragForPremove(piece) {
+  if (!engine || !currentAssignment || !matchMeta) return false;
+  if (matchMeta.ended_at) return false;
+ 
+  // allow only your own color
+  return pieceColorFromCode(piece) === currentAssignment.color;
+}
+ 
+function canDragForRealMove(boardIndex, piece) {
+  // this is your current canDragPiece logic
+  return canDragPiece(boardIndex, piece);
+}
+ 
+ 
 function applyLastMoveHighlight(boardIndex) {
   const root = document.getElementById(`board${boardIndex}`);
   if (!root) return;
@@ -71,6 +102,64 @@ function setLastMove(boardIndex, from, to) {
   requestAnimationFrame(() => applyLastMoveHighlight(boardIndex));
 }
  
+ 
+async function tryApplyPremove() {
+  // allow chaining multiple premoves in AI mode
+  for (let guard = 0; guard < 20; guard++) {
+    if (!engine || !clock || !matchMeta || matchMeta.ended_at) return;
+    if (!currentAssignment) return;
+    if (isSubmittingMove) return;
+ 
+    const boardIndex = engine.currentTurn.board;
+    if (engine.currentTurn.color !== currentAssignment.color) return;
+ 
+    const pm = pendingMoveByBoard[boardIndex];
+    if (!pm) return;
+ 
+    // consume it now
+    pendingMoveByBoard[boardIndex] = null;
+    setPremoveStatus();
+ 
+    const { from, to, promotion } = pm;
+ 
+    const result = engine.applyMove({ boardIndex, from, to, promotion: promotion || 'q' });
+    if (!result.ok) {
+      setStatus(`Premove canceled: ${result.reason}`);
+      continue; // try next time/board
+    }
+ 
+    setLastMove(boardIndex, from, to);
+    clock.switchTurn(engine.currentTurn.color);
+    renderMatchUi();
+ 
+    isSubmittingMove = true;
+    try {
+      if (!localAiEnabled) {
+        await submitMove({ boardIndex, from, to, promotion: promotion || 'q' });
+      }
+ 
+      if (result.matchResult) {
+        await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
+      }
+    } finally {
+      isSubmittingMove = false;
+    }
+ 
+    if (matchMeta?.ended_at) return;
+ 
+    // AI responds, then loop continues and may fire the next premove
+    if (localAiEnabled) {
+      await maybeComputerMove();
+      continue;
+    }
+ 
+    // online: stop here (must wait for opponent move)
+    return;
+  }
+}
+
+ 
+ 
 
  
 function uciToMove(uci) {
@@ -79,16 +168,6 @@ function uciToMove(uci) {
 } 
  
 async function maybeComputerMove() {
-	
-  /*
-  console.log('[AI maybeComputerMove] enter', {
-  localAiEnabled,
-  aiColor,
-  ended: !!matchMeta?.ended_at,
-  currentTurn: engine?.currentTurn,
-  boardFinished: engine?.serialize?.().boardFinished
-  }); 
-  */
 	
   if (!localAiEnabled || !engine || !clock || matchMeta?.ended_at) return;
   if (engine.currentTurn.color !== aiColor) return;
@@ -119,6 +198,7 @@ async function maybeComputerMove() {
  
     clock.switchTurn(engine.currentTurn.color);
     renderMatchUi();
+ 	await tryApplyPremove();
  
     if (result.matchResult) {
       await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
@@ -180,6 +260,24 @@ function requireSupabaseConfigured() {
     throw new Error('Missing Supabase config. Fill public/config.js (SUPABASE_URL, SUPABASE_ANON_KEY).');
   }
 }
+ 
+function applyPremoveHighlight(boardIndex) {
+  const root = document.getElementById(`board${boardIndex}`);
+  if (!root) return;
+ 
+  root.querySelectorAll('.premove-from,.premove-to').forEach(n =>
+    n.classList.remove('premove-from','premove-to')
+  );
+ 
+  const pm = pendingMoveByBoard[boardIndex];
+  if (!pm) return;
+ 
+  const fromEl = root.querySelector(`[data-square="${pm.from}"]`) || root.querySelector(`.square-${pm.from}`);
+  const toEl   = root.querySelector(`[data-square="${pm.to}"]`)   || root.querySelector(`.square-${pm.to}`);
+  if (fromEl) fromEl.classList.add('premove-from');
+  if (toEl) toEl.classList.add('premove-to');
+} 
+ 
  
 async function loadMyProfile() {
   requireSupabaseConfigured();
@@ -265,13 +363,26 @@ function initBoardsIfNeeded() {
       draggable: true,
       position: 'start',
       orientation: 'white',
-      onDragStart: (source, piece) => canDragPiece(idx, piece),
+      
+	  onDragStart: (source, piece) => {
+		  // allow dragging own pieces even when not active (for premove)
+		  return canDragForRealMove(idx, piece) || canDragForPremove(piece);
+		},
+	  
       onDrop: (source, target, piece) => {
         if (!profile || !currentMatchId || !engine || source === target) return 'snapback';
         if (isSubmittingMove) return 'snapback';
-        if (!canDragPiece(idx, pieceFromCode(piece))) return 'snapback';
- 
-        const result = engine.applyMove({
+        
+		if (!canDragForRealMove(idx, pieceFromCode(piece))) {
+		  if (canDragForPremove(pieceFromCode(piece))) {
+			pendingMoveByBoard[idx] = { from: source, to: target, promotion: 'q' };
+			applyPremoveHighlight(idx);
+			setPremoveStatus();
+		  }
+		  return 'snapback';
+		}
+		
+		const result = engine.applyMove({
           boardIndex: idx,
           from: source,
           to: target,
@@ -280,6 +391,7 @@ function initBoardsIfNeeded() {
  
         if (!result.ok) {
           setStatus(`Move rejected: ${result.reason}`);
+		  		  
           return 'snapback';
         }
 		
@@ -289,24 +401,25 @@ function initBoardsIfNeeded() {
         renderMatchUi();
  
         isSubmittingMove = true;
-        (async () => {
-          try {
-			 if (!localAiEnabled) {
+		(async () => {
+		  try {
+			if (!localAiEnabled) {
 			  await submitMove({ boardIndex: idx, from: source, to: target, promotion: 'q' });
 			}
- 
-            if (result.matchResult) {
-              await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
-            }
- 
-            // If local AI mode, let computer respond
-            if (localAiEnabled) {
-              await maybeComputerMove();
-            }
-          } finally {
-            isSubmittingMove = false;
-          }
-        })();
+		 
+			if (result.matchResult) {
+			  await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
+			}
+		 
+			if (localAiEnabled) {
+			  await maybeComputerMove();
+			}
+		  } finally {
+			isSubmittingMove = false;
+		  }
+		 
+		  await tryApplyPremove();
+		})();
  
         return; // keep piece (no snapback)
       }
@@ -401,6 +514,10 @@ function renderMatchUi() {
   boards[3].orientation(orientation);
  
   renderBoards();
+  applyPremoveHighlight(1);
+  applyPremoveHighlight(2);
+  applyPremoveHighlight(3);
+  
   updatePieceNumberLabels();
   
   applyLastMoveHighlight(1);
@@ -417,7 +534,7 @@ function renderMatchUi() {
       matchMeta.result === 'draw' ? 'Draw' : matchMeta.result === 'white' ? 'White wins' : 'Black wins';
     setStatus(`Game over: ${r} (${matchMeta.termination || 'ended'})`);
   } else {
-    setStatus('');
+    setPremoveStatus(); // shows premoves if any, otherwise clears
   }
   
 }
@@ -646,7 +763,8 @@ async function applyMoveRow(move) {
   setLastMove(move.board_index, move.from_square, move.to_square);
   
   clock.switchTurn(engine.currentTurn.color);
- 
+  await tryApplyPremove();
+  
   if (result.matchResult) {
     await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
   }

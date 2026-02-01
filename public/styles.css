@@ -82,6 +82,9 @@ button.danger { background: var(--danger); color: #120012; }
 /* show a small number on squares that have data-piece-num */
 .square-55d63 { position: relative; }
  
+.premove-from { outline: 4px solid rgba(0, 255, 0, 0.95) !important; outline-offset: -4px !important; }
+.premove-to   { outline: 4px solid rgba(0, 160, 0, 0.95) !important; outline-offset: -4px !important; }
+ 
 .square-55d63[data-piece-num]::after {
   content: attr(data-piece-num);
   position: absolute;
