@@ -45,6 +45,14 @@
       };
     }
  
+	setFromSnapshot({ remainingMs, activeColor }, now = Date.now()) {
+	  this.remaining = { ...remainingMs };
+	  this.activeColor = activeColor;
+	  this.running = true;
+	  this.lastTs = now;
+	}
+ 
+ 
     isFlagged(now = Date.now()) {
       this._tick(now);
       if (this.remaining.w <= 0) return 'w';

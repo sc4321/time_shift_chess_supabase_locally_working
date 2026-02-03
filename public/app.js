@@ -40,8 +40,30 @@ let aiColor = null;          // 'w' or 'b'
 let stockfish = null;
 
 let _lastClockLog = 0;
+
+let serverOffsetMs = 0; // serverNowMs - Date.now()
  
+let clockMoves = []; // array of { created_at }
+
 const lastMoveByBoard = { 1: null, 2: null, 3: null };
+
+let serverOffsetTimer = null;
+ 
+function startServerOffsetTimer() {
+  if (serverOffsetTimer) return;
+  serverOffsetTimer = setInterval(() => {
+    if (!localAiEnabled && currentMatchId && matchMeta && !matchMeta.ended_at) {
+      syncServerOffsetMs(3);
+    }
+  }, 15000);
+}
+ 
+function stopServerOffsetTimer() {
+  if (serverOffsetTimer) clearInterval(serverOffsetTimer);
+  serverOffsetTimer = null;
+}
+
+
  
 function setPremoveStatus() {
   const parts = [];
@@ -51,6 +73,67 @@ function setPremoveStatus() {
   }
   setStatus(parts.length ? `Premoves: ${parts.join(' | ')}` : '');
 } 
+
+
+function nowServerMs() {
+  return Date.now() + serverOffsetMs;
+}
+
+function clockNow() {
+  // Online: use server-based time; AI: local time is fine
+  return localAiEnabled ? Date.now() : nowServerMs();
+}
+
+async function syncServerOffsetMs(samples = 5) {
+  const offsets = [];
+ 
+  for (let i = 0; i < samples; i++) {
+    const t0 = Date.now(); // local before request
+    const { data: serverNow, error } = await supabaseClient.rpc('server_now');
+    const t1 = Date.now(); // local after response
+ 
+    if (error || !serverNow) continue;
+ 
+    const serverMs = new Date(serverNow).getTime();
+    const midLocal = (t0 + t1) / 2; // approx local time when server measured
+    offsets.push(serverMs - midLocal);
+ 
+    await new Promise((r) => setTimeout(r, 50));
+  }
+ 
+  if (!offsets.length) return;
+ 
+  offsets.sort((a, b) => a - b);
+  serverOffsetMs = offsets[Math.floor(offsets.length / 2)]; // median
+}
+
+
+
+function clockNow() {
+  return localAiEnabled ? Date.now() : nowServerMs();
+}
+ 
+function computeClockFromHistory({ initialMs, matchCreatedAtIso, moves }) {
+  let remaining = { w: initialMs, b: initialMs };
+  let activeColor = 'w';
+  let prevTs = new Date(matchCreatedAtIso).getTime();
+ 
+  for (const mv of moves) {
+    const ts = new Date(mv.created_at).getTime();
+    const dt = Math.max(0, ts - prevTs);
+    remaining[activeColor] = Math.max(0, remaining[activeColor] - dt);
+    prevTs = ts;
+    activeColor = activeColor === 'w' ? 'b' : 'w';
+  }
+ 
+  // subtract time since last move using SERVER time
+  const dtNow = Math.max(0, nowServerMs() - prevTs);
+  remaining[activeColor] = Math.max(0, remaining[activeColor] - dtNow);
+ 
+  return { remainingMs: remaining, activeColor };
+}
+
+
 
 
 function pieceColorFromCode(piece) {
@@ -129,14 +212,26 @@ async function tryApplyPremove() {
     }
  
     setLastMove(boardIndex, from, to);
-    clock.switchTurn(engine.currentTurn.color);
+    if (localAiEnabled) clock.switchTurn(engine.currentTurn.color);
     renderMatchUi();
  
     isSubmittingMove = true;
     try {
       if (!localAiEnabled) {
-        await submitMove({ boardIndex, from, to, promotion: promotion || 'q' });
-      }
+	    const inserted = await submitMove({ boardIndex, from, to, promotion: promotion || 'q' });
+	 
+	    if (inserted?.created_at) {
+		  clockMoves.push({ created_at: inserted.created_at });
+	 
+		  const snap = computeClockFromHistory({
+		    initialMs: matchMeta.time_control_ms,
+		    matchCreatedAtIso: matchMeta.created_at,
+		    moves: clockMoves
+		  });
+	 
+		  clock.setFromSnapshot(snap, clockNow());
+	    }
+	  }
  
       if (result.matchResult) {
         await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
@@ -196,7 +291,7 @@ async function maybeComputerMove() {
  
 	setLastMove(boardIndex, mv.from, mv.to);
  
-    clock.switchTurn(engine.currentTurn.color);
+    if (localAiEnabled) clock.switchTurn(engine.currentTurn.color);
     renderMatchUi();
  	await tryApplyPremove();
  
@@ -397,14 +492,27 @@ function initBoardsIfNeeded() {
 		
  		setLastMove(idx, source, target);
 		
-        clock.switchTurn(engine.currentTurn.color);
+        if (localAiEnabled) clock.switchTurn(engine.currentTurn.color);
         renderMatchUi();
  
         isSubmittingMove = true;
 		(async () => {
 		  try {
 			if (!localAiEnabled) {
-			  await submitMove({ boardIndex: idx, from: source, to: target, promotion: 'q' });
+			  //await submitMove({ boardIndex: idx, from: source, to: target, promotion: 'q' });
+			  const inserted = await submitMove({ boardIndex: idx, from: source, to: target, promotion: 'q' });
+				 
+				if (inserted?.created_at) {
+				  clockMoves.push({ created_at: inserted.created_at });
+				 
+				  const snap = computeClockFromHistory({
+					initialMs: matchMeta.time_control_ms,
+					matchCreatedAtIso: matchMeta.created_at,
+					moves: clockMoves
+				  });
+				 
+				  clock.setFromSnapshot(snap, clockNow()); // IMPORTANT: local time, not nowServerMs()
+				}
 			}
 		 
 			if (result.matchResult) {
@@ -475,7 +583,7 @@ function renderTurnIndicators() {
  
 function renderClocks() {
   if (!clock) return;
-  const snap = clock.snapshot();
+  const snap = clock.snapshot(clockNow());
   el('clockWhite').textContent = `White: ${fmtMs(snap.remainingMs.w)}`;
   el('clockBlack').textContent = `Black: ${fmtMs(snap.remainingMs.b)}`;
   el('clockWhite').classList.toggle('active', snap.activeColor === 'w' && snap.running);
@@ -658,12 +766,16 @@ async function enterMatch(matchId) {
   stopClockUi();
   timeoutCommitted = false;
   lastAppliedMoveId = 0;
+  
+  clockMoves = [];
  
   currentMatchId = matchId;
  
   const { data: m, error: mErr } = await supabaseClient.from('matches').select('*').eq('id', matchId).single();
   if (mErr) throw mErr;
   matchMeta = m;
+ 
+  await syncServerOffsetMs(); 
  
   const { data: players, error: pErr } = await supabaseClient
     .from('match_players')
@@ -677,9 +789,18 @@ async function enterMatch(matchId) {
  
   engine = new window.TimeShiftEngine();
   clock = new window.MatchClock({ initialMs: matchMeta.time_control_ms });
-  clock.start();
+  clock.start(clockNow()); //clock.start(clockNow());
  
   await replayMoves();
+ 
+ const snap = computeClockFromHistory({
+	initialMs: matchMeta.time_control_ms,
+	matchCreatedAtIso: matchMeta.created_at,
+	moves: clockMoves
+  });
+  clock.setFromSnapshot(snap, clockNow());
+
+ 
  
   startMovesPolling();
  
@@ -713,6 +834,9 @@ async function enterMatch(matchId) {
     renderClocks();
     maybeCommitTimeout();
   }, 250);*/
+  
+  startServerOffsetTimer();
+  
 }
  
 async function replayMoves() {
@@ -762,8 +886,19 @@ async function applyMoveRow(move) {
  
   setLastMove(move.board_index, move.from_square, move.to_square);
   
-  clock.switchTurn(engine.currentTurn.color);
-  await tryApplyPremove();
+  // track authoritative server timestamp for this move
+  if (move.created_at) clockMoves.push({ created_at: move.created_at });
+	 
+  // recompute & set clock from server timestamps (authoritative)
+  const snap = computeClockFromHistory({
+	initialMs: matchMeta.time_control_ms,
+	matchCreatedAtIso: matchMeta.created_at,
+	moves: clockMoves
+	});
+	clock.setFromSnapshot(snap, clockNow());
+	 
+	await tryApplyPremove();
+
   
   if (result.matchResult) {
     await commitMatchEnd({ result: result.matchResult, termination: 'checkmate' });
@@ -831,7 +966,7 @@ function stopMovesPolling() {
 async function fullResync() {
   engine = new window.TimeShiftEngine();
   clock = new window.MatchClock({ initialMs: matchMeta.time_control_ms });
-  clock.start();
+  clock.start(clockNow()); //clock.start();
   startClockUi();
   lastAppliedMoveId = 0;
   await replayMoves();
@@ -851,7 +986,7 @@ async function submitMove({ boardIndex, from, to, promotion }) {
     to_square: to,
     promotion: promotion || 'q'
   })
-  .select('id')
+  .select('id, created_at')
   .single();
  
 if (error) {
@@ -863,6 +998,9 @@ if (error) {
  
 // IMPORTANT: mark this id as already processed, so polling won't re-fetch it
 lastAppliedMoveId = Math.max(lastAppliedMoveId, data.id);
+
+return data; // { id, created_at }
+
 }
 
  
@@ -924,7 +1062,7 @@ async function commitMatchEnd({ result, termination }) {
 async function maybeCommitTimeout() {
   if (!clock || !engine || !matchMeta || matchMeta.ended_at) return;
   if (timeoutCommitted) return;
-  const flagged = clock.isFlagged();
+  const flagged = clock.isFlagged(clockNow());
   if (!flagged) return;
   timeoutCommitted = true;
   const winner = flagged === 'w' ? 'b' : 'w';
@@ -943,7 +1081,7 @@ async function leaveQueue() {
 }
  
 async function logout() {
-  
+  stopServerOffsetTimer()
   localAiEnabled = false;
   aiColor = null;
   if (stockfish?.stop) stockfish.stop();
@@ -1059,7 +1197,7 @@ el('queueBtn').addEventListener('click', async () => {
 	  
 	  
       clock = new window.MatchClock({ initialMs: timeControlMs });
-      clock.start();
+      clock.start(clockNow()); //clock.start();
 	  startClockUi();
  
       setVisible('lobbyCard', false);
@@ -1132,7 +1270,7 @@ el('backToLobbyBtn').addEventListener('click', async () => {
 	const winner = currentAssignment.color === 'w' ? 'b' : 'w';
 	await commitMatchEnd({ result: winner, termination: 'resign' });
   }
-  
+  stopServerOffsetTimer()
   // STOP AI 
   localAiEnabled = false;
   aiColor = null;
