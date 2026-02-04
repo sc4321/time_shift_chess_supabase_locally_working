@@ -39,6 +39,8 @@ let localAiEnabled = false;
 let aiColor = null;          // 'w' or 'b'
 let stockfish = null;
 
+let matchPollTimer = null;
+
 let _lastClockLog = 0;
 
 let serverOffsetMs = 0; // serverNowMs - Date.now()
@@ -62,6 +64,45 @@ function stopServerOffsetTimer() {
   if (serverOffsetTimer) clearInterval(serverOffsetTimer);
   serverOffsetTimer = null;
 }
+
+
+
+function startMatchPolling() {
+  if (matchPollTimer) return;
+ 
+  matchPollTimer = setInterval(async () => {
+    try {
+      if (!currentMatchId || !matchMeta) return;
+      if (matchMeta.ended_at) return;
+ 
+      const { data, error } = await supabaseClient
+        .from('matches')
+        .select('ended_at, result, termination')
+        .eq('id', currentMatchId)
+        .single();
+ 
+      if (error || !data) return;
+ 
+      if (data.ended_at) {
+        matchMeta = { ...matchMeta, ...data };
+        clock?.pause();
+        renderMatchUi();
+      }
+    } catch {
+      // ignore polling errors
+    }
+  }, 1000);
+}
+ 
+function stopMatchPolling() {
+  if (!matchPollTimer) return;
+  clearInterval(matchPollTimer);
+  matchPollTimer = null;
+}
+
+
+
+
 
 
  
@@ -815,6 +856,10 @@ async function enterMatch(matchId) {
   
   renderMatchUi();
  
+  document.body.classList.add('in-game'); 
+ 
+  startMatchPolling();
+ 
   matchRowChannel = supabaseClient
     .channel(`match_${matchId}`)
     .on(
@@ -927,6 +972,9 @@ function setLastMove(boardIndex, from, to) {
   lastMoveByBoard[boardIndex] = { from, to };
   applyLastMoveHighlight(boardIndex);
 } 
+ 
+ 
+
  
  
 function startMovesPolling() {
@@ -1087,6 +1135,8 @@ async function logout() {
   if (stockfish?.stop) stockfish.stop();
 	stockfish = null;
 
+  document.body.classList.remove('in-game');
+
   clearRealtime();
   stopClockUi();
   currentMatchId = null;
@@ -1101,6 +1151,7 @@ async function logout() {
   setVisible('gameCard', false);
   
   if (supabaseClient) await supabaseClient.auth.signOut();
+  stopMatchPolling();
   stopMovesPolling();
 }
  
@@ -1271,6 +1322,9 @@ el('backToLobbyBtn').addEventListener('click', async () => {
 	await commitMatchEnd({ result: winner, termination: 'resign' });
   }
   stopServerOffsetTimer()
+  
+  document.body.classList.remove('in-game');
+  
   // STOP AI 
   localAiEnabled = false;
   aiColor = null;
@@ -1297,6 +1351,7 @@ el('backToLobbyBtn').addEventListener('click', async () => {
   setQueueStatus('');
   setStatus('');
   resetGameUiState();
+  stopMatchPolling();
 });
  
  function resetGameUiState() {
