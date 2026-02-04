@@ -357,6 +357,43 @@ function el(id) {
   return document.getElementById(id);
 }
  
+function updateBoardSizeVar() {
+  const isPhoneLandscape = window.matchMedia('(pointer: coarse) and (max-width: 900px) and (orientation: landscape)').matches;
+  if (!isPhoneLandscape) {
+    document.documentElement.style.removeProperty('--boardSize');
+    return;
+  }
+ 
+  const gameCard = el('gameCard');
+  if (!gameCard) return;
+ 
+  const header = gameCard.querySelector('.gameHeader');
+  const headerH = header ? header.getBoundingClientRect().height : 0;
+ 
+  // Safety margins for padding + indicators
+  const availH = Math.max(120, window.innerHeight - headerH - 40);
+ 
+  // Width split into 3 boards + gaps + padding
+  const availW = Math.max(200, window.innerWidth - 6 * 2 - 8 * 2 - 6 * 2 * 3); 
+  const size = Math.floor(Math.max(140, Math.min(availH, availW / 3)));
+ 
+  document.documentElement.style.setProperty('--boardSize', `${size}px`);
+ 
+  // Ask chessboard.js to reflow
+  try {
+    boards[1]?.resize?.();
+    boards[2]?.resize?.();
+    boards[3]?.resize?.();
+  } catch {}
+}
+ 
+window.addEventListener('resize', () => setTimeout(updateBoardSizeVar, 50));
+window.addEventListener('orientationchange', () => setTimeout(updateBoardSizeVar, 150));
+
+ 
+ 
+ 
+ 
 function setVisible(id, visible) {
   const node = el(id);
   if (!node) return;
@@ -898,6 +935,8 @@ async function enterMatch(matchId) {
   
   renderMatchUi();
  
+  setTimeout(updateBoardSizeVar, 50); 
+ 
   startMatchPolling();
  
   matchRowChannel = supabaseClient
@@ -1338,6 +1377,8 @@ el('queueBtn').addEventListener('click', async () => {
       setVisible('gameCard', true);
 	  setInGame(true);
       renderMatchUi();
+ 
+	  setTimeout(updateBoardSizeVar, 50);
  
 	  stopQueuePolling();	
 	  setVisible('queueWidget', false);
