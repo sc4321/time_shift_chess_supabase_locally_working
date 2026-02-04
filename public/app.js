@@ -579,14 +579,36 @@ function initBoardsIfNeeded() {
   boards[3] = mk(3);
 }
  
+ 
+function setInGame(on) {
+  document.body.classList.toggle('in-game', !!on);
+} 
+ 
 function pieceFromCode(piece) {
   // chessboard.js gives codes like "wP" (already fine)
   return piece;
 }
  
+function resizeBoards() {
+  try {
+    boards[1]?.resize?.();
+    boards[2]?.resize?.();
+    boards[3]?.resize?.();
+  } catch {}
+}
+ 
+window.addEventListener('resize', () => setTimeout(resizeBoards, 50));
+window.addEventListener('orientationchange', () => setTimeout(resizeBoards, 150)); 
+ 
+ 
+ 
 function canDragPiece(boardIndex, piece) {
+
+  if (isPortraitMobile()) return false;
   if (!engine || !currentAssignment || !matchMeta) return false;
   if (matchMeta.ended_at) return false;
+  
+ 
  
   const { board, color } = engine.currentTurn;
   if (board !== boardIndex) return false;
@@ -647,6 +669,20 @@ function renderBoards() {
   boards[3].position(snapshot.positions[3], false);
 }
  
+function isMobileLike() {
+  return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
+}
+ 
+function isPortraitMobile() {
+  return isMobileLike() && window.matchMedia('(orientation: portrait)').matches;
+}
+ 
+function requireLandscapeOrWarn() {
+  if (!isPortraitMobile()) return true;
+  setStatus('Rotate phone to landscape to play.');
+  return false;
+}
+ 
 function renderMatchUi() {
   initBoardsIfNeeded();
  
@@ -655,6 +691,8 @@ function renderMatchUi() {
   setVisible('authCard', false);
   setVisible('lobbyCard', false);
   setVisible('gameCard', true);
+ 
+  setTimeout(resizeBoards, 50);
  
   const orientation = currentAssignment && currentAssignment.color === 'b' ? 'black' : 'white';
   
@@ -799,6 +837,9 @@ function stopQueuePolling() {
  
  
 async function enterMatch(matchId) {
+	
+  requireLandscapeOrWarn(); // show message/overlay if portrait
+	
   await supabaseClient.rpc('queue_leave');
   stopQueuePolling();
   setVisible('queueWidget', false);
@@ -851,12 +892,11 @@ async function enterMatch(matchId) {
   setVisible('authCard', false);
   setVisible('lobbyCard', false);
   setVisible('gameCard', true);
+  setInGame(true);
   
   resetGameUiState();
   
   renderMatchUi();
- 
-  document.body.classList.add('in-game'); 
  
   startMatchPolling();
  
@@ -1011,6 +1051,21 @@ function stopMovesPolling() {
 }
  
  
+let _lockedScrollY = 0;
+ 
+function setInGame(on) {
+  if (on) {
+    _lockedScrollY = window.scrollY || 0;
+    document.body.classList.add('in-game');
+    document.body.style.top = `-${_lockedScrollY}px`;
+  } else {
+    document.body.classList.remove('in-game');
+    const y = _lockedScrollY;
+    document.body.style.top = '';
+    window.scrollTo(0, y);
+  }
+}
+ 
 async function fullResync() {
   engine = new window.TimeShiftEngine();
   clock = new window.MatchClock({ initialMs: matchMeta.time_control_ms });
@@ -1128,7 +1183,23 @@ async function leaveQueue() {
   }
 }
  
+
+function isPortraitMobile() {
+  return window.matchMedia('(max-width: 900px) and (orientation: portrait)').matches;
+}
+ 
+function requireLandscapeOrWarn() {
+  if (!isPortraitMobile()) return true;
+  setStatus('Rotate phone to landscape to play.');
+  const hint = el('rotateHint');
+  if (hint) hint.style.display = 'block';
+  return false;
+} 
+ 
+ 
+ 
 async function logout() {
+  setInGame(false);
   stopServerOffsetTimer()
   localAiEnabled = false;
   aiColor = null;
@@ -1136,7 +1207,8 @@ async function logout() {
 	stockfish = null;
 
   document.body.classList.remove('in-game');
-
+  setInGame(false);
+  
   clearRealtime();
   stopClockUi();
   currentMatchId = null;
@@ -1218,6 +1290,17 @@ el('loginForm').addEventListener('submit', async (e) => {
 el('queueBtn').addEventListener('click', async () => {
   const btn = el('queueBtn');
   btn.disabled = true;
+  
+  if (!requireLandscapeOrWarn()) {
+  btn.disabled = false;
+  return;
+  }
+  
+  if (!requireLandscapeOrWarn()) {
+    btn.disabled = false;
+    return; // stop starting a match while portrait
+  }
+  
   try {
     if (!profile) return;
  
@@ -1253,6 +1336,7 @@ el('queueBtn').addEventListener('click', async () => {
  
       setVisible('lobbyCard', false);
       setVisible('gameCard', true);
+	  setInGame(true);
       renderMatchUi();
  
 	  stopQueuePolling();	
@@ -1315,6 +1399,8 @@ el('resignBtn').addEventListener('click', async () => {
 });
  
 el('backToLobbyBtn').addEventListener('click', async () => {
+	
+	setInGame(false);
   
 	// If you leave an active match, end it (treat as resign)
   if (currentMatchId && currentAssignment && matchMeta && !matchMeta.ended_at) {
@@ -1330,7 +1416,7 @@ el('backToLobbyBtn').addEventListener('click', async () => {
   aiColor = null;
   if (stockfish?.stop) stockfish.stop();
   stockfish = null;
-  
+  setInGame(false);
   setVisible('queueWidget', true);
   clearRealtime();
   stopClockUi();
