@@ -146,8 +146,6 @@ async function syncServerOffsetMs(samples = 5) {
   serverOffsetMs = offsets[Math.floor(offsets.length / 2)]; // median
 }
 
-
-
 function clockNow() {
   return localAiEnabled ? Date.now() : nowServerMs();
 }
@@ -332,6 +330,10 @@ async function maybeComputerMove() {
  
     if (localAiEnabled) clock.switchTurn(engine.currentTurn.color);
     renderMatchUi();
+	requestAnimationFrame(updatePieceNumberLabels);
+	applyLastMoveHighlight(1);
+	applyLastMoveHighlight(2);
+	applyLastMoveHighlight(3);
  	await tryApplyPremove();
  
     if (result.matchResult) {
@@ -570,6 +572,11 @@ function initBoardsIfNeeded() {
 		
         if (localAiEnabled) clock.switchTurn(engine.currentTurn.color);
         renderMatchUi();
+		
+		requestAnimationFrame(updatePieceNumberLabels);
+		applyLastMoveHighlight(1);
+		applyLastMoveHighlight(2);
+		applyLastMoveHighlight(3);
  
         isSubmittingMove = true;
 		(async () => {
@@ -1104,6 +1111,7 @@ function startMovesPolling() {
         .order('id', { ascending: true });
  
       if (error) return;
+	  if (!data || data.length === 0) return; 
  
       for (const move of data) {
         await applyMoveRow(move);
