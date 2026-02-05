@@ -43,9 +43,8 @@ input, select {
   outline: none;
 }
 
-.last-from { background-color: rgba(106,169,255,0.45) ;!important; }  	//0.45 was 0.85
-.last-to   { background-color: rgba(50,169,255,0.45) ;!important;}		//0.45 was 0.85
-
+.last-from { background-color: rgba(106,169,255,0.45) !important; }
+.last-to   { background-color: rgba(50,169,255,0.45) !important; }
 
 button {
   background: var(--accent);
@@ -149,10 +148,9 @@ body.in-game {
 /* =========================
    Mobile behavior (final)
    ========================= */
- 
 html, body { height: 100%; overscroll-behavior: none; }
  
-/* Lock page scrolling while playing */
+/* While in game, lock scrolling (mobile) */
 body.in-game {
   position: fixed;
   left: 0; right: 0;
@@ -161,63 +159,85 @@ body.in-game {
   touch-action: none;
 }
  
-/* Hint hidden by default */
+/* Rotate hint hidden by default */
 #rotateHint { display: none; }
  
-/* Portrait: keep header/buttons/clocks visible, hide ONLY the boards */
- @media (pointer: coarse) and (max-width: 900px) and (orientation: portrait) {
+/* Portrait on touch devices: hide boards, show rotate hint */
+@media (pointer: coarse) and (max-width: 900px) and (orientation: portrait) {
   #gameCard .boards { display: none !important; }
   #rotateHint { display: block !important; }
 }
  
-/* Landscape: make boards one row and fill width */
-@media (max-width: 900px) and (orientation: landscape) {
-  .app {
-    max-width: none;
-    width: 100vw;
-    padding: 8px;              /* reduce padding so 3 boards fit */
-  }
- 
-  .card { padding: 10px; }     /* reduce card padding on phones */
- 
-  #gameCard .boards {
-    display: grid !important;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    gap: 8px;
-    width: 100%;
-  }
- 
-  #gameCard .boardWrap { min-width: 0; }
- 
-  /* Make board container responsive */
-  #gameCard .board {
-    width: 100% !important;
-    max-width: 100% !important;
-  }
-}
-
-/*****************************************************************************/
-/* Default board size (desktop) */
-.board { width: var(--boardSize, 306px); }
- 
-/* Mobile landscape: keep everything on screen, 3 boards in one row */
+/* Landscape on touch devices: compact header + 1-line clocks + 3 boards */
 @media (pointer: coarse) and (max-width: 900px) and (orientation: landscape) {
+  /* Hide non-essential stuff */
+  .topbar { display: none !important; }
+  #matchMeta { display: none !important; }
+  .turnIndicator { display: none !important; }
+  #gameStatus { display: none !important; }
+  .boardTitle { display: none !important; }
+  #rotateHint { display: none !important; }
+ 
+  /* Reduce padding to fit */
   .app { max-width: none; width: 100vw; padding: 6px; }
   .card { padding: 10px; margin-bottom: 10px; }
  
-  #gameCard { height: 100vh; overflow: hidden; }
- 
-  #gameCard .boards {
+  /* Critical: prevent the header from wrapping */
+  .gameHeader {
     display: grid !important;
-    grid-template-columns: repeat(3, var(--boardSize)) !important;
-    gap: 8px;
-    justify-content: center;
-    align-items: start;
-    width: 100%;
+    grid-template-columns: 1fr auto !important;  /* left: clocks, right: buttons */
+    align-items: center !important;
+    gap: 8px !important;
   }
  
-  #gameCard .boardWrap { min-width: 0; padding: 6px; }
-  #rotateHint { display: none !important; }
+  /* One line: Active | Black | White */
+  .clocks {
+    display: grid !important;
+    grid-template-columns: auto 1fr 1fr !important;
+    gap: 6px !important;
+    align-items: center !important;
+    min-width: 0 !important;
+  }
+ 
+  .activeBoard,
+  .clock {
+    padding: 2px 8px !important;     /* shorter */
+    font-size: 14px !important;
+    line-height: 1.1 !important;
+    white-space: nowrap !important;
+    min-width: 0 !important;
+  }
+ 
+  .clock {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+ 
+  /* Buttons in one row */
+  .gameActions {
+    display: grid !important;
+    grid-template-columns: auto auto !important;
+    gap: 8px !important;
+    justify-content: end !important;
+    white-space: nowrap !important;
+  }
+ 
+  .gameActions button {
+    padding: 6px 10px !important;
+    font-size: 14px !important;
+    white-space: nowrap !important;
+  }
+ 
+  /* Boards always 3 in a row */
+  #gameCard .boards {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    width: 100% !important;
+    margin-top: 8px !important;
+  }
+ 
+  #gameCard .boardWrap { min-width: 0 !important; padding: 6px !important; }
+  #gameCard .board { width: 100% !important; max-width: 100% !important; }
 }
-
 

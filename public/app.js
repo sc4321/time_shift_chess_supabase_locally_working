@@ -49,6 +49,8 @@ let clockMoves = []; // array of { created_at }
 
 const lastMoveByBoard = { 1: null, 2: null, 3: null };
 
+const labelPrevSquareByBoard = { 1: {}, 2: {}, 3: {} }; // key -> square
+
 let serverOffsetTimer = null;
  
 function startServerOffsetTimer() {
@@ -120,10 +122,6 @@ function nowServerMs() {
   return Date.now() + serverOffsetMs;
 }
 
-function clockNow() {
-  // Online: use server-based time; AI: local time is fine
-  return localAiEnabled ? Date.now() : nowServerMs();
-}
 
 async function syncServerOffsetMs(samples = 5) {
   const offsets = [];
@@ -616,10 +614,11 @@ function initBoardsIfNeeded() {
   boards[3] = mk(3);
 }
  
- 
+
+/* 
 function setInGame(on) {
   document.body.classList.toggle('in-game', !!on);
-} 
+} */
  
 function pieceFromCode(piece) {
   // chessboard.js gives codes like "wP" (already fine)
@@ -719,6 +718,15 @@ function requireLandscapeOrWarn() {
   setStatus('Rotate phone to landscape to play.');
   return false;
 }
+
+
+function renderActiveBoardLabel() {
+  const n = el('activeBoardLabel');
+  if (!n || !engine) return;
+  const name = engine.currentTurn.board === 1 ? 'Young' : engine.currentTurn.board === 2 ? 'Middle' : 'Old';
+  n.textContent = `Active: ${name}`;
+}
+
  
 function renderMatchUi() {
   initBoardsIfNeeded();
@@ -729,7 +737,7 @@ function renderMatchUi() {
   setVisible('lobbyCard', false);
   setVisible('gameCard', true);
  
-  setTimeout(resizeBoards, 50);
+  /*setTimeout(resizeBoards, 50);*/
  
   const orientation = currentAssignment && currentAssignment.color === 'b' ? 'black' : 'white';
   
@@ -742,13 +750,14 @@ function renderMatchUi() {
   applyPremoveHighlight(2);
   applyPremoveHighlight(3);
   
-  updatePieceNumberLabels();
+  requestAnimationFrame(updatePieceNumberLabels);
   
   applyLastMoveHighlight(1);
   applyLastMoveHighlight(2);
   applyLastMoveHighlight(3);
   
   renderTurnIndicators();
+  renderActiveBoardLabel();
   renderClocks();
   renderMatchHeader();
    
@@ -770,13 +779,9 @@ function renderMatchUi() {
     const root = document.getElementById(`board${boardIndex}`);
     if (!root) continue;
  
-    // clear old labels
-    
-	root.querySelectorAll('[data-piece-num]').forEach(n => {
-	  n.removeAttribute('data-piece-num');
-	  n.removeAttribute('data-piece-color');
-	});
-	
+    const prev = labelPrevSquareByBoard[boardIndex];
+    const next = {};
+ 
     const boardMap = engine.boardMaps[boardIndex];
     if (!boardMap) continue;
  
@@ -784,23 +789,48 @@ function renderMatchUi() {
       const entry = boardMap[key];
       if (!entry?.square || !entry?.piece) continue;
  
-      const pieceLetter = entry.piece[1]; // 'R','N',...
+      const pieceLetter = entry.piece[1];
       if (pieceLetter !== 'R' && pieceLetter !== 'N') continue;
  
-      const file = key[0]; // original file (a/b = "1", g/h = "2")
-      const num = (file === 'a' || file === 'b') ? '1'
-                : (file === 'g' || file === 'h') ? '2'
-                : null;
+      const file = key[0];
+      const num =
+        file === 'a' || file === 'b' ? '1' :
+        file === 'g' || file === 'h' ? '2' :
+        null;
       if (!num) continue;
  
+      next[key] = entry.square;
+ 
+      // If it moved, clear old square only (no wipe-all)
+      const oldSq = prev[key];
+      if (oldSq && oldSq !== entry.square) {
+        const oldEl = root.querySelector(`.square-${oldSq}`);
+        if (oldEl) {
+          oldEl.removeAttribute('data-piece-num');
+          oldEl.removeAttribute('data-piece-color');
+        }
+      }
+ 
+      // Set on current square
       const squareEl = root.querySelector(`.square-${entry.square}`);
-      
-	  if (squareEl) {
-		squareEl.setAttribute('data-piece-num', num);
-		squareEl.setAttribute('data-piece-color', entry.piece[0]); // 'w' or 'b'
-		}
-	  
+      if (squareEl) {
+        squareEl.setAttribute('data-piece-num', num);
+        squareEl.setAttribute('data-piece-color', entry.piece[0]); // 'w' or 'b'
+      }
     }
+ 
+    // Pieces that disappeared (captured): clear their last square
+    for (const key of Object.keys(prev)) {
+      if (next[key]) continue;
+      const oldSq = prev[key];
+      const oldEl = root.querySelector(`.square-${oldSq}`);
+      if (oldEl) {
+        oldEl.removeAttribute('data-piece-num');
+        oldEl.removeAttribute('data-piece-color');
+      }
+    }
+ 
+    labelPrevSquareByBoard[boardIndex] = next;
   }
 }
  
@@ -935,6 +965,9 @@ async function enterMatch(matchId) {
   
   renderMatchUi();
  
+  setTimeout(resizeBoards, 100);
+  setTimeout(updatePieceNumberLabels, 120);
+
   setTimeout(updateBoardSizeVar, 50); 
  
   startMatchPolling();
@@ -1377,6 +1410,9 @@ el('queueBtn').addEventListener('click', async () => {
       setVisible('gameCard', true);
 	  setInGame(true);
       renderMatchUi();
+ 
+      setTimeout(resizeBoards, 100);
+	  setTimeout(updatePieceNumberLabels, 120);
  
 	  setTimeout(updateBoardSizeVar, 50);
  
