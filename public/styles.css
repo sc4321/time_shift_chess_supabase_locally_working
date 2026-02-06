@@ -241,3 +241,54 @@ body.in-game {
   #gameCard .board { width: 100% !important; max-width: 100% !important; }
 }
 
+.landscapePopup.hidden { display: none; }
+ 
+.landscapePopup {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+ 
+.landscapePopupCard {
+  border: 2px solid rgba(22, 163, 74, 0.9);
+  background: rgba(18, 26, 43, 0.95);
+  border-radius: 16px;
+  padding: 18px 16px;
+  width: min(320px, 86vw);
+  text-align: center;
+}
+ 
+.landscapePopupTitle {
+  color: #16a34a;
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: 0.6px;
+  margin-bottom: 12px;
+}
+ 
+.landscapePopupIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #16a34a;
+  font-weight: 900;
+  font-size: 22px;
+}
+ 
+.phonePortrait, .phoneLandscape {
+  border: 2px solid #22c55e;
+  border-radius: 8px;
+  background: rgba(22, 163, 74, 0.14);
+}
+ 
+.phonePortrait { width: 28px; height: 52px; }
+.phoneLandscape { width: 52px; height: 28px; }
+ 
+@media (pointer: coarse) and (max-width: 900px) and (orientation: portrait) {
+  #landscapePopup { display: flex; }
+}

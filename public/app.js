@@ -118,6 +118,14 @@ function setPremoveStatus() {
 } 
 
 
+function showLandscapePopup() {
+  const p = el('landscapePopup');
+  if (!p) return;
+  p.classList.remove('hidden');
+  setTimeout(() => p.classList.add('hidden'), 2500);
+}
+
+
 function nowServerMs() {
   return Date.now() + serverOffsetMs;
 }
@@ -722,7 +730,7 @@ function isPortraitMobile() {
  
 function requireLandscapeOrWarn() {
   if (!isPortraitMobile()) return true;
-  setStatus('Rotate phone to landscape to play.');
+  showLandscapePopup();
   return false;
 }
 
